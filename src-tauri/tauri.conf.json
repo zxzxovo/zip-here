@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.ziphere.win.app",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "bun dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "bun build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -17,7 +17,8 @@
         "height": 600,
         "minHeight": 320,
         "minWidth": 600,
-        "decorations": false
+        "decorations": false,
+        "dragDropEnabled": true
       }
     ],
     "security": {

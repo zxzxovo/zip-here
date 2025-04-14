@@ -5,6 +5,7 @@ import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import Card from '../components/Card.vue';
 import RadioGroup from '../components/RadioGroup.vue';
 import { useRoute } from 'vue-router';
+import { decompressFiles } from '../utils/tauri-api';
 
 // 添加路由对象以获取查询参数
 const route = useRoute();
@@ -26,6 +27,8 @@ const outputOption = ref<'select_path' | 'source_path' | 'desktop_path'>('source
 const isProcessing = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+const password = ref('');
+const usePassword = ref(false);
 
 // 从路由参数获取文件
 onMounted(() => {
@@ -78,12 +81,10 @@ const handleFileSelect = async () => {
 };
 
 // 处理文件拖放
-const handleFileDrop = async (e: DragEvent) => {
-    if (e.dataTransfer?.files) {
-        // TODO: 处理文件路径获取，Tauri有特定API来处理这个
-        // const droppedFiles = Array.from(e.dataTransfer.files);
-        // files.value = droppedFiles.map(file => file.path || file.name);
+const handleFileDrop = async (paths: string[]) => {
+    if (Array.isArray(paths)) {
         updateSourcePath();
+        files.value = paths;
         errorMessage.value = '';
     }
 };
@@ -138,25 +139,33 @@ const startDecompress = async () => {
 
     isProcessing.value = true;
     errorMessage.value = '';
+    successMessage.value = '';
 
     try {
-        // TODO: 调用Tauri的Rust后端函数进行实际解压
-        // 示例：
-        // await invoke('decompress_files', { 
-        //     files: files.value,
-        //     outputPath: selectedOutputPath.value,
-        //     createFolder: outputMethod.value === 'create_folder'
-        // });
-
-        // 模拟解压过程
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // 根据outputMethod生成正确的目标路径
+        const targetPath = handledOutputPath.value;
+        
+        // 检查是否需要密码等选项
+        const options: DecompressOptions = {};
+        if (usePassword.value) {
+            options.password = password.value;
+        }
+        
+        console.log(`正在解压文件到: ${targetPath}`);
+        
+        // 调用后端解压API
+        await decompressFiles(files.value, targetPath, '', options);
 
         successMessage.value = '文件解压成功!';
         setTimeout(() => {
             successMessage.value = '';
         }, 3000);
+        
+        // 解压成功后清除选择的文件
+        clearFiles();
     } catch (error) {
-        errorMessage.value = `解压失败: ${error}`;
+        console.error('解压失败:', error);
+        errorMessage.value = `解压失败: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
         isProcessing.value = false;
     }
@@ -183,7 +192,7 @@ watch(outputOption, (newV, _oldV) => {
             </template>
             <template #body>
                 <div class="app-file-input">
-                    <FileDragInputBox class="app-file-drag" @drop="handleFileDrop" @click="handleFileSelect">
+                    <FileDragInputBox class="app-file-drag" @file-dropped="handleFileDrop" @click="handleFileSelect">
                         <template #content>
                             <div v-if="files.length === 0">
                                 <p>拖拽文件到此处，或点击选择文件</p>
@@ -229,6 +238,14 @@ watch(outputOption, (newV, _oldV) => {
                             " name="outputMethod" />
                     </div>
 
+                    <div class="app-option-group">
+                        <label>
+                            <input type="checkbox" v-model="usePassword" />
+                            使用密码
+                        </label>
+                        <input type="password" v-model="password" :disabled="!usePassword" placeholder="输入密码" />
+                    </div>
+
                     <div class="app-path-display">
                         输出路径: {{ handledOutputPath }}
                     </div>
@@ -270,8 +287,9 @@ watch(outputOption, (newV, _oldV) => {
 }
 
 .input-card {
+    margin-top: 0.8rem;
     flex: 1 1 auto;
-    min-height: 180px;
+    min-height: 220px;
 }
 
 .option-card {

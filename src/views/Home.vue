@@ -46,12 +46,9 @@ const handleFileSelect = async () => {
 };
 
 // 处理文件拖放
-const handleFileDrop = async (e: DragEvent) => {
-    if (e.dataTransfer?.files) {
-        // 注意：在实际应用中，需要使用Tauri API获取文件路径
-        // 这里只是添加了处理逻辑结构
-        console.log('Files dropped');
-        // TODO: 使用Tauri API处理文件路径
+const handleFileDrop = async (paths: string[]) => {
+    if (Array.isArray(paths)) {
+        files.value = paths;
     }
 };
 
@@ -64,7 +61,7 @@ const clearFiles = () => {
 <template>
     <main class="home-container">
         <div class="home-drag-box">
-            <FileDragInputBox class="app-file-drag" @drop="handleFileDrop" @click="handleFileSelect">
+            <FileDragInputBox class="app-file-drag" @file-dropped="handleFileDrop" @click="handleFileSelect">
                 <template #content>
                     <div v-if="files.length === 0">
                         <h1>欢迎使用 Zip Here</h1>

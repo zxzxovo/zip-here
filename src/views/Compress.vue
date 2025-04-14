@@ -5,6 +5,8 @@ import FileDragInputBox from '../components/FileDragInputBox.vue';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import Card from '../components/Card.vue';
 import { useRoute } from 'vue-router';
+import { compressFiles, getFormatOptions, getSupportedFormats, saveFile } from '../utils/tauri-api';
+import type { FormatOption } from '../utils/tauri-api';
 
 // 添加路由对象以获取查询参数
 const route = useRoute();
@@ -21,8 +23,8 @@ const handledOutputPath = computed(() => {
         return `${selectedOutputPath.value}/${fileName.value}.${compressFormat.value}`;
     }
 });
-const compressFormat = ref<'zip' | 'rar' | '7z' | 'tar' | 'gz'>('zip');
-const compressionLevel = ref<'store' | 'fast' | 'normal' | 'maximum'>('normal');
+const compressFormat = ref('zip');
+const compressionLevel = ref(6);
 const outputPath = ref<'select_path' | 'source_path' | 'desktop_path'>('source_path');
 const fileName = ref('compressed');
 const sourcePath = ref('');
@@ -30,9 +32,65 @@ const isProcessing = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 const showAdvanced = ref(false);
+const password = ref('');
+const usePassword = ref(false);
+
+// 格式选项
+const formatOptions = ref<FormatOption[]>([]);
+const supportedFormats = ref<string[]>([]);
+const currentFormatOption = ref<FormatOption | null>(null);
+
+// 从后端加载支持的压缩格式和选项
+const loadFormats = async () => {
+    try {
+        // 获取支持的格式
+        supportedFormats.value = await getSupportedFormats();
+        
+        // 加载每个格式的详细信息
+        const options = await Promise.all(
+            supportedFormats.value.map(async format => {
+                try {
+                    return await getFormatOptions(format);
+                } catch (error) {
+                    console.error(`加载格式选项失败: ${format}`, error);
+                    return null;
+                }
+            })
+        );
+        
+        formatOptions.value = options.filter((opt): opt is FormatOption => opt !== null);
+        
+        // 更新选中格式的详情
+        updateFormatDetails();
+    } catch (error) {
+        console.error('加载格式信息失败:', error);
+        errorMessage.value = `加载格式信息失败: ${error}`;
+    }
+};
+
+// 更新当前选择格式的详细信息
+const updateFormatDetails = () => {
+    const selected = formatOptions.value.find(opt => opt.extension === compressFormat.value);
+    currentFormatOption.value = selected || null;
+    
+    // 如果格式不支持密码，禁用密码选项
+    if (selected && !selected.supports_password) {
+        usePassword.value = false;
+    }
+    
+    // 如果格式不支持压缩级别，使用默认级别
+    if (selected) {
+        if (selected.supports_level && selected.default_level !== undefined) {
+            compressionLevel.value = selected.default_level;
+        }
+    }
+};
 
 // 从路由参数获取文件
-onMounted(() => {
+onMounted(async () => {
+    // 加载格式信息
+    await loadFormats();
+    
     const filesParam = route.query.files;
     if (filesParam && typeof filesParam === 'string') {
         try {
@@ -48,15 +106,6 @@ onMounted(() => {
         }
     }
 });
-
-// 压缩格式选项
-const formatOptions = [
-    { value: 'zip', label: 'ZIP格式' },
-    { value: 'rar', label: 'RAR格式' },
-    { value: '7z', label: '7Z格式' },
-    { value: 'tar', label: 'TAR格式' },
-    { value: 'gz', label: 'GZ格式' }
-];
 
 // 处理文件选择
 const handleFileSelect = async () => {
@@ -87,12 +136,12 @@ const handleFileSelect = async () => {
 };
 
 // 处理文件拖放
-const handleFileDrop = async (e: DragEvent) => {
-    if (e.dataTransfer?.files) {
-        // TODO: 处理文件路径获取，Tauri有特定API来处理这个
-        // files.value = Array.from(e.dataTransfer.files).map(file => file.path || file.name);
-        errorMessage.value = '';
+const handleFileDrop = async (paths: string[]) => {
+    if (Array.isArray(paths)) {
+        console.log('Files dropped:', paths);
+        files.value = paths;
         updateSourcePath();
+        errorMessage.value = '';
     }
 };
 
@@ -112,13 +161,28 @@ const updateSourcePath = () => {
 // 选择输出路径
 const selectOutputPath = async () => {
     try {
-        const selected = await dialogOpen({
-            directory: true,
-            multiple: false
-        });
+        const selected = await saveFile(
+            `${fileName.value}.${compressFormat.value}`,
+            [{ name: '压缩文件', extensions: [compressFormat.value] }]
+        );
 
-        if (selected !== null && typeof selected === 'string') {
-            selectedOutputPath.value = selected;
+        if (selected !== null) {
+            // 从路径中提取文件名和目录
+            const lastSlashIndex = selected.lastIndexOf('\\') > -1 ?
+                selected.lastIndexOf('\\') :
+                selected.lastIndexOf('/');
+            
+            selectedOutputPath.value = selected.substring(0, lastSlashIndex);
+            
+            // 提取不带扩展名的文件名
+            const fileNameWithExt = selected.substring(lastSlashIndex + 1);
+            const dotIndex = fileNameWithExt.lastIndexOf('.');
+            if (dotIndex > -1) {
+                fileName.value = fileNameWithExt.substring(0, dotIndex);
+            } else {
+                fileName.value = fileNameWithExt;
+            }
+            
             errorMessage.value = '';
         }
     } catch (error) {
@@ -146,19 +210,19 @@ const startCompress = async () => {
 
     isProcessing.value = true;
     errorMessage.value = '';
+    successMessage.value = '';
 
     try {
-        // TODO: 调用Tauri的Rust后端函数进行实际压缩
-        // 示例：
-        // await invoke('compress_files', { 
-        //     files: files.value,
-        //     outputPath: handledOutputPath.value,
-        //     format: compressFormat.value,
-        //     level: compressionLevel.value
-        // });
-
-        // 模拟压缩过程
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // 调用Tauri API进行压缩
+        await compressFiles(
+            files.value,
+            handledOutputPath.value,
+            {
+                format: compressFormat.value,
+                level: compressionLevel.value,
+                password: usePassword.value ? password.value : undefined
+            }
+        );
 
         successMessage.value = '文件压缩成功!';
         setTimeout(() => {
@@ -171,10 +235,16 @@ const startCompress = async () => {
     }
 };
 
+// 监听输出路径变化
 watch(outputPath, (newV, _oldV) => {
     if (newV === 'select_path') {
         selectOutputPath();
     }
+});
+
+// 监听压缩格式变化
+watch(compressFormat, () => {
+    updateFormatDetails();
 });
 
 // 切换高级选项显示
@@ -192,7 +262,7 @@ const toggleAdvanced = () => {
             </template>
             <template #body>
                 <div class="app-file-input">
-                    <FileDragInputBox class="app-file-drag" @drop="handleFileDrop" @click="handleFileSelect">
+                    <FileDragInputBox class="app-file-drag" @file-dropped="handleFileDrop" @click="handleFileSelect">
                         <template #content>
                             <div v-if="files.length === 0">
                                 <p>拖拽文件到此处，或点击选择文件</p>
@@ -226,8 +296,8 @@ const toggleAdvanced = () => {
                             id="format-select" 
                             v-model="compressFormat" 
                             class="app-select">
-                            <option v-for="option in formatOptions" :key="option.value" :value="option.value">
-                                {{ option.label }}
+                            <option v-for="option in formatOptions" :key="option.id" :value="option.extension">
+                                {{ option.name }}
                             </option>
                         </select>
                     </div>
@@ -263,16 +333,31 @@ const toggleAdvanced = () => {
             </template>
             <template #body>
                 <div class="app-options">
-                    <div class="app-option-group">
-                        <RadioGroup label="压缩级别：" v-model="compressionLevel" :options="[
-                            { value: 'store', label: '存储 (不压缩)' },
-                            { value: 'fast', label: '快速压缩' },
-                            { value: 'normal', label: '标准压缩' },
-                            { value: 'maximum', label: '最大压缩' }
-                        ]" name="compressionLevel" />
+                    <!-- 压缩级别选项 -->
+                    <div v-if="currentFormatOption && currentFormatOption.supports_level" class="app-option-group">
+                        <label for="compression-level">压缩级别:</label>
+                        <input 
+                            id="compression-level" 
+                            type="range" 
+                            v-model.number="compressionLevel"
+                            :min="currentFormatOption.min_level"
+                            :max="currentFormatOption.max_level"
+                        >
+                        <span>{{ compressionLevel }}</span>
                     </div>
 
-                    <!-- TODO: 可以添加更多高级选项，如加密、分卷等 -->
+                    <!-- 密码选项 -->
+                    <div v-if="currentFormatOption && currentFormatOption.supports_password" class="app-option-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="use-password" v-model="usePassword">
+                            <label for="use-password">使用密码保护</label>
+                        </div>
+                    </div>
+
+                    <div v-if="usePassword" class="app-option-group">
+                        <label for="password">密码:</label>
+                        <input type="password" id="password" v-model="password" class="app-input" placeholder="输入密码">
+                    </div>
                 </div>
             </template>
         </Card>
@@ -311,8 +396,9 @@ const toggleAdvanced = () => {
 }
 
 .input-card {
+    margin-top: 0.8rem;
     flex: 1 1 auto;
-    min-height: 180px;
+    min-height: 220px;
 }
 
 .option-card {
@@ -368,6 +454,12 @@ const toggleAdvanced = () => {
 }
 
 .app-option-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.checkbox-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
