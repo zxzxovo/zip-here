@@ -1,22 +1,22 @@
-// 向外部导出压缩格式相关的模块
-pub mod z_zip;
-pub mod z_bzip2;
-pub mod z_zstd;
-pub mod z_tar;
-pub mod z_gzip;
-pub mod z_xz;
+// Export compression format related modules
 pub mod z_7zip;
+pub mod z_bzip2;
+pub mod z_gzip;
+pub mod z_tar;
+pub mod z_xz;
+pub mod z_zip;
+pub mod z_zstd;
 
-// 导入压缩器实现
-use z_zip::ZipCompressor;
-use z_bzip2::Bzip2Compressor;
-use z_zstd::ZstdCompressor;
-use z_tar::TarCompressor;
-use z_gzip::GzipCompressor;
-use z_xz::XzCompressor;
+// Import compressor implementations
 use z_7zip::SevenZipCompressor;
+use z_bzip2::Bzip2Compressor;
+use z_gzip::GzipCompressor;
+use z_tar::TarCompressor;
+use z_xz::XzCompressor;
+use z_zip::ZipCompressor;
+use z_zstd::ZstdCompressor;
 
-// 压缩选项
+// Compression options
 pub enum CompressionOptions {
     Zip {
         level: u32,
@@ -43,22 +43,18 @@ pub enum CompressionOptions {
     },
 }
 
-// 解压选项
+// Decompression options
 pub enum DecompressionOptions {
-    Zip {
-        password: Option<String>,
-    },
+    Zip { password: Option<String> },
     Tar {},
     Gzip {},
     Bzip2 {},
     Xz {},
     Zstd {},
-    SevenZip {
-        password: Option<String>,
-    },
+    SevenZip { password: Option<String> },
 }
 
-// 压缩/解压缩接口
+// Compression/decompression interface
 pub trait ComdeAble {
     async fn compress(
         &self,
@@ -75,7 +71,7 @@ pub trait ComdeAble {
     ) -> Result<(), String>;
 }
 
-// 支持的压缩格式
+// Supported compression formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompressionFormat {
     Zip,
@@ -88,7 +84,7 @@ pub enum CompressionFormat {
 }
 
 impl CompressionFormat {
-    // 获取格式对应的文件扩展名
+    // Get the file extension for the format
     pub fn extension(&self) -> &'static str {
         match self {
             CompressionFormat::Zip => "zip",
@@ -101,7 +97,7 @@ impl CompressionFormat {
         }
     }
 
-    // 从扩展名获取格式
+    // Get format from file extension
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
             "zip" => Some(Self::Zip),
@@ -115,7 +111,7 @@ impl CompressionFormat {
         }
     }
 
-    // 获取所有支持的格式
+    // Get all supported formats
     pub fn all_formats() -> Vec<Self> {
         vec![
             Self::Zip,
@@ -128,7 +124,7 @@ impl CompressionFormat {
         ]
     }
 
-    // 获取格式名称
+    // Get format display name
     pub fn name(&self) -> &'static str {
         match self {
             CompressionFormat::Zip => "ZIP",
@@ -142,7 +138,7 @@ impl CompressionFormat {
     }
 }
 
-// 压缩器，使用枚举代替trait对象
+// Compressor, using enum instead of trait objects
 #[derive(Clone)]
 pub enum Compressor {
     Zip(ZipCompressor),
@@ -155,7 +151,7 @@ pub enum Compressor {
 }
 
 impl Compressor {
-    // 根据格式创建对应的压缩器
+    // Create a compressor for the specified format
     pub fn new(format: CompressionFormat) -> Self {
         match format {
             CompressionFormat::Zip => Self::Zip(ZipCompressor::new()),
@@ -168,7 +164,7 @@ impl Compressor {
         }
     }
 
-    // 压缩方法
+    // Compression method
     pub async fn compress(
         &self,
         input_paths: Vec<&str>,
@@ -186,7 +182,7 @@ impl Compressor {
         }
     }
 
-    // 解压方法
+    // Decompression method
     pub async fn decompress(
         &self,
         input_paths: Vec<&str>,
@@ -205,21 +201,21 @@ impl Compressor {
     }
 }
 
-// 压缩器工厂简化版本，不再使用trait对象
+// Simplified compressor factory without trait objects
 pub struct CompressorFactory;
 
 impl CompressorFactory {
-    // 创建压缩器工厂
+    // Create a new compressor factory
     pub fn new() -> Self {
         Self {}
     }
 
-    // 获取指定格式的压缩器
+    // Get a compressor for the specified format
     pub fn get(&self, format: CompressionFormat) -> Option<Compressor> {
         Some(Compressor::new(format))
     }
 
-    // 获取所有支持的格式
+    // Get all supported formats
     pub fn supported_formats(&self) -> Vec<CompressionFormat> {
         CompressionFormat::all_formats()
     }

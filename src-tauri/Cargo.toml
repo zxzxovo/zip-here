@@ -31,3 +31,13 @@ bzip2 = "0.4.4"
 xz2 = "0.1.7"
 zstd = "0.13.0"
 chrono = "0.4.35"
+clap = { version = "4.5.1", features = ["derive"] }
+anyhow = "1.0.75"
+thiserror = "1.0.56"
+tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros"] }
+tauri-plugin-os = "2"
+
+# Windows 注册表操作相关
+[target.'cfg(windows)'.dependencies]
+winreg = "0.51.0"
+windows = { version = "0.52.0", features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_System_Registry"] }

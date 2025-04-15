@@ -1,8 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { desktopDir } from '@tauri-apps/api/path';
+import { platform } from '@tauri-apps/plugin-os';
 
 /**
- * 压缩选项接口
+ * Compression options interface
  */
 export interface CompressOptions {
   format: string;
@@ -11,14 +13,14 @@ export interface CompressOptions {
 }
 
 /**
- * 解压选项接口
+ * Decompression options interface
  */
 export interface DecompressOptions {
   password?: string;
 }
 
 /**
- * 格式选项接口
+ * Format option interface
  */
 export interface FormatOption {
   id: string;
@@ -34,7 +36,7 @@ export interface FormatOption {
 }
 
 /**
- * 版本信息接口
+ * Version information interface
  */
 export interface VersionInfo {
   version: string;
@@ -44,10 +46,10 @@ export interface VersionInfo {
 }
 
 /**
- * 压缩文件
- * @param inputPaths 输入文件/目录路径列表
- * @param outputPath 输出文件路径
- * @param options 压缩选项
+ * Compress files
+ * @param inputPaths List of input file/directory paths
+ * @param outputPath Output file path
+ * @param options Compression options
  */
 export async function compressFiles(
   inputPaths: string[], 
@@ -62,11 +64,11 @@ export async function compressFiles(
 }
 
 /**
- * 解压文件
- * @param inputPaths 输入文件路径列表
- * @param outputPath 输出目录路径
- * @param format 文件格式（可选，如果未提供则自动检测）
- * @param options 解压选项
+ * Decompress files
+ * @param inputPaths List of input archive file paths
+ * @param outputPath Output directory path
+ * @param format File format (optional, auto-detected if not provided)
+ * @param options Decompression options
  */
 export async function decompressFiles(
   inputPaths: string[], 
@@ -105,7 +107,48 @@ export async function getVersionInfo(): Promise<VersionInfo> {
 }
 
 /**
- * 打开文件选择对话框
+ * 检查是否为 Windows 系统
+ */
+export async function isWindowsOS(): Promise<boolean> {
+  return (await platform() as string) === 'win32';
+}
+
+/**
+ * 添加到 Windows 右键菜单
+ * @param openMode 打开模式 ('cli' 或 'gui')
+ */
+export async function addContextMenu(openMode: 'cli' | 'gui'): Promise<void> {
+  return await invoke<void>('add_context_menu', { openMode });
+}
+
+/**
+ * 从 Windows 右键菜单中移除
+ */
+export async function removeContextMenu(): Promise<void> {
+  return await invoke<void>('remove_context_menu');
+}
+
+/**
+ * 设置文件关联
+ * @param formats 要关联的文件格式（逗号分隔的字符串或 'all'）
+ * @param openMode 打开模式 ('gui' 或 'viewer')
+ */
+export async function setFileAssociation(
+  formats: string,
+  openMode: 'gui' | 'viewer'
+): Promise<void> {
+  return await invoke<void>('set_file_association', { formats, openMode });
+}
+
+/**
+ * 移除文件关联
+ * @param formats 要移除关联的文件格式（逗号分隔的字符串或 'all'）
+ */
+export async function removeFileAssociation(formats: string): Promise<void> {
+  return await invoke<void>('remove_file_association', { formats });
+}
+
+/**
  * @param multiple 是否允许多选
  * @param filters 文件过滤器
  */
@@ -178,4 +221,11 @@ export function getFileFilters(format: string): { name: string, extensions: stri
         }
       ];
   }
+}
+
+/**
+ * Get desktop directory path
+ */
+export async function getDesktopPath(): Promise<string> {
+  return await desktopDir();
 }

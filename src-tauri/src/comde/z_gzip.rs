@@ -1,9 +1,9 @@
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
-use flate2::Compression;
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
 
 use super::{ComdeAble, CompressionOptions, DecompressionOptions};
 
@@ -44,7 +44,9 @@ impl ComdeAble for GzipCompressor {
         // 打开输入文件
         let mut input_file = File::open(path).map_err(|e| e.to_string())?;
         let mut buffer = Vec::new();
-        input_file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+        input_file
+            .read_to_end(&mut buffer)
+            .map_err(|e| e.to_string())?;
 
         // 创建输出文件
         let output_file = File::create(output_path).map_err(|e| e.to_string())?;
@@ -74,21 +76,21 @@ impl ComdeAble for GzipCompressor {
         // GZIP只能处理单个文件
         for input_path in input_paths {
             let input_file = File::open(input_path).map_err(|e| e.to_string())?;
-            
+
             // 获取输出文件名
             let output_file_path = if Path::new(output_path).is_dir() {
                 let input_filename = Path::new(input_path)
                     .file_name()
                     .and_then(|name| name.to_str())
                     .ok_or("无法获取输入文件名")?;
-                
+
                 // 移除.gz扩展名
                 let original_name = if input_filename.ends_with(".gz") {
                     &input_filename[0..input_filename.len() - 3]
                 } else {
                     input_filename
                 };
-                
+
                 Path::new(output_path).join(original_name)
             } else {
                 Path::new(output_path).to_path_buf()
@@ -98,8 +100,10 @@ impl ComdeAble for GzipCompressor {
             let mut decoder = GzDecoder::new(input_file);
             let mut output_file = File::create(&output_file_path).map_err(|e| e.to_string())?;
             let mut buffer = Vec::new();
-            
-            decoder.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+
+            decoder
+                .read_to_end(&mut buffer)
+                .map_err(|e| e.to_string())?;
             output_file.write_all(&buffer).map_err(|e| e.to_string())?;
         }
 

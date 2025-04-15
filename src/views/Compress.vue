@@ -5,7 +5,7 @@ import FileDragInputBox from '../components/FileDragInputBox.vue';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import Card from '../components/Card.vue';
 import { useRoute } from 'vue-router';
-import { compressFiles, getFormatOptions, getSupportedFormats, saveFile } from '../utils/tauri-api';
+import { compressFiles, getFormatOptions, getSupportedFormats, saveFile, getDesktopPath } from '../utils/tauri-api';
 import type { FormatOption } from '../utils/tauri-api';
 
 // 添加路由对象以获取查询参数
@@ -14,11 +14,12 @@ const route = useRoute();
 // 状态
 const files = ref<string[]>([]);
 const selectedOutputPath = ref('');
+const desktopPath = ref('');
 const handledOutputPath = computed(() => {
     if (outputPath.value === 'source_path') {
         return `${sourcePath.value}/${fileName.value}.${compressFormat.value}`;
     } else if (outputPath.value === 'desktop_path') {
-        return `/Desktop/${fileName.value}.${compressFormat.value}`;
+        return `${desktopPath.value}/${fileName.value}.${compressFormat.value}`;
     } else {
         return `${selectedOutputPath.value}/${fileName.value}.${compressFormat.value}`;
     }
@@ -62,6 +63,9 @@ const loadFormats = async () => {
         
         // 更新选中格式的详情
         updateFormatDetails();
+        
+        // 获取桌面路径
+        desktopPath.value = await getDesktopPath();
     } catch (error) {
         console.error('加载格式信息失败:', error);
         errorMessage.value = `加载格式信息失败: ${error}`;

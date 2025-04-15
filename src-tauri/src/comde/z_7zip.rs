@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use sevenz_rust2 as sevenz;
+use std::path::{Path, PathBuf};
 
 use super::{ComdeAble, CompressionOptions, DecompressionOptions};
 
@@ -26,7 +26,10 @@ impl ComdeAble for SevenZipCompressor {
         };
 
         // 将所有输入路径转换为PathBuf
-        let paths: Vec<PathBuf> = input_paths.iter().map(|p| Path::new(*p).to_path_buf()).collect();
+        let paths: Vec<PathBuf> = input_paths
+            .iter()
+            .map(|p| Path::new(*p).to_path_buf())
+            .collect();
 
         // 使用7z压缩文件或目录
         // 注：sevenz-rust2库目前不支持密码和压缩级别设置，需要等待库的更新
@@ -42,24 +45,22 @@ impl ComdeAble for SevenZipCompressor {
             // 如果有多个文件，需要单独处理每个文件
             for path in &paths {
                 // 获取文件名作为输出文件的一部分
-                let file_name = path.file_name()
-                    .ok_or("无效的文件名")?
-                    .to_string_lossy();
-                
+                let file_name = path.file_name().ok_or("无效的文件名")?.to_string_lossy();
+
                 // 创建临时输出路径
                 let temp_output = format!("{}.tmp", output_path);
-                
+
                 // 压缩单个文件
                 match sevenz::compress_to_path(path, &temp_output) {
                     Ok(_) => {
                         // 成功压缩，将临时文件移动到最终位置
                         std::fs::rename(temp_output, output_path)
                             .map_err(|e| format!("重命名文件失败: {}", e))?;
-                    },
+                    }
                     Err(e) => return Err(format!("压缩文件 {} 失败: {}", file_name, e)),
                 }
             }
-            
+
             // 如果代码能运行到这里，表示所有文件都已成功压缩
             Ok(())
         }

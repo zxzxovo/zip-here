@@ -1,139 +1,125 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue';
+import RadioGroup from '../components/RadioGroup.vue';
 import FileDragInputBox from '../components/FileDragInputBox.vue';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import Card from '../components/Card.vue';
-import RadioGroup from '../components/RadioGroup.vue';
 import { useRoute } from 'vue-router';
-import { decompressFiles } from '../utils/tauri-api';
+import { decompressFiles, selectDirectory, getDesktopPath } from '../utils/tauri-api';
+import { useI18n } from '../i18n';
 
-// 添加路由对象以获取查询参数
+// Get internationalization instance
+const { t } = useI18n();
+
+// Route object for query parameters
 const route = useRoute();
 
-// 状态
+// State
 const files = ref<string[]>([]);
+const inputFilePath = ref('');
+const outputPath = ref<'source_path' | 'desktop_path' | 'select_path'>('source_path');
 const selectedOutputPath = ref('');
-const handledOutputPath = computed(() => { 
-    if (outputMethod.value === 'create_folder') {
-        return `${selectedOutputPath.value}/Decompressed`;
-    } else if (outputMethod.value === 'one_folder') {
-        return `${selectedOutputPath.value}/All_Decompressed`;
-    } else {
-        return selectedOutputPath.value;
-    }
-});
-const outputMethod = ref<'create_folder' | 'direct' | 'one_folder'>('create_folder');
-const outputOption = ref<'select_path' | 'source_path' | 'desktop_path'>('source_path');
+const desktopPath = ref('');
+const sourcePath = ref('');
 const isProcessing = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 const password = ref('');
 const usePassword = ref(false);
 
-// 从路由参数获取文件
-onMounted(() => {
-    const filesParam = route.query.files;
-    if (filesParam && typeof filesParam === 'string') {
-        try {
-            const parsedFiles = JSON.parse(filesParam);
-            if (Array.isArray(parsedFiles)) {
-                // 过滤只保留压缩文件格式
-                const compressedFiles = parsedFiles.filter(file => {
-                    const ext = file.split('.').pop()?.toLowerCase();
-                    return ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext || '');
-                });
-                
-                if (compressedFiles.length > 0) {
-                    files.value = compressedFiles;
-                    updateSourcePath();
-                }
-            }
-        } catch (error) {
-            console.error('解析文件参数出错:', error);
-        }
+// Computed output path based on selection
+const handledOutputPath = computed(() => {
+    if (outputPath.value === 'source_path') {
+        return sourcePath.value;
+    } else if (outputPath.value === 'desktop_path') {
+        return desktopPath.value;
+    } else {
+        return selectedOutputPath.value;
     }
 });
 
-// 处理文件选择
+// Handle file selection
 const handleFileSelect = async () => {
     try {
         const selected = await dialogOpen({
-            multiple: true,
+            multiple: false,
             filters: [{
-                name: 'Archive',
-                extensions: ['zip', 'rar', '7z', 'tar', 'gz']
+                name: 'Archives',
+                extensions: ['zip', 'tar', 'gz', 'xz', 'bz2', 'zst', '7z']
             }]
         });
 
         if (selected !== null) {
             if (Array.isArray(selected)) {
                 files.value = selected;
+                inputFilePath.value = selected[0] || '';
                 updateSourcePath();
             } else {
                 files.value = [selected];
+                inputFilePath.value = selected;
                 updateSourcePath();
             }
             errorMessage.value = '';
         }
     } catch (error) {
-        errorMessage.value = `选择文件出错: ${error}`;
+        errorMessage.value = `${t('error')}: ${error}`;
     }
 };
 
-// 处理文件拖放
+// Handle file drop
 const handleFileDrop = async (paths: string[]) => {
-    if (Array.isArray(paths)) {
+    if (Array.isArray(paths) && paths.length > 0) {
+        files.value = [paths[0]]; // Only taking the first file for decompression
+        inputFilePath.value = paths[0];
         updateSourcePath();
-        files.value = paths;
         errorMessage.value = '';
     }
 };
 
-// 更新源文件路径
+// Update source path when file changes
 const updateSourcePath = () => {
-    if (files.value.length > 0) {
-        const filePath = files.value[0];
-        // 获取文件所在目录
+    if (inputFilePath.value) {
+        const filePath = inputFilePath.value;
+        // Get directory containing the file
         const lastSlashIndex = filePath.lastIndexOf('\\') > -1 ?
             filePath.lastIndexOf('\\') :
             filePath.lastIndexOf('/');
 
-        selectedOutputPath.value = filePath.substring(0, lastSlashIndex);
+        sourcePath.value = filePath.substring(0, lastSlashIndex);
     }
 };
 
-// 选择输出路径
+// Select output path
 const selectOutputPath = async () => {
     try {
-        const selected = await dialogOpen({
-            directory: true,
-            multiple: false
-        });
+        const selected = await selectDirectory(false);
 
         if (selected !== null && typeof selected === 'string') {
             selectedOutputPath.value = selected;
             errorMessage.value = '';
         }
     } catch (error) {
-        errorMessage.value = `选择输出路径出错: ${error}`;
+        errorMessage.value = `${t('error')}: ${error}`;
     }
 };
 
-// 清除选择的文件
+// Clear selected file
 const clearFiles = () => {
     files.value = [];
-    selectedOutputPath.value = '';
+    inputFilePath.value = '';
+    sourcePath.value = '';
 };
 
-// 开始解压
+// Start decompression
 const startDecompress = async () => {
     if (files.value.length === 0) {
-        errorMessage.value = '请选择要解压的文件';
+        errorMessage.value = t('pleaseSelectArchive');
         return;
     }
 
-    if (selectedOutputPath.value === '' && outputOption.value === 'select_path') {
-        errorMessage.value = '请选择输出路径';
+    // Validate selected path
+    if (outputPath.value === 'select_path' && !selectedOutputPath.value) {
+        errorMessage.value = t('pleaseSelectOutputPath');
         return;
     }
 
@@ -142,43 +128,57 @@ const startDecompress = async () => {
     successMessage.value = '';
 
     try {
-        // 根据outputMethod生成正确的目标路径
-        const targetPath = handledOutputPath.value;
-        
-        // 检查是否需要密码等选项
-        const options: DecompressOptions = {};
-        if (usePassword.value) {
-            options.password = password.value;
-        }
-        
-        console.log(`正在解压文件到: ${targetPath}`);
-        
-        // 调用后端解压API
-        await decompressFiles(files.value, targetPath, '', options);
+        const options = usePassword.value ? { password: password.value } : undefined;
 
-        successMessage.value = '文件解压成功!';
+        await decompressFiles(
+            [inputFilePath.value], 
+            handledOutputPath.value, 
+            '', // Auto-detect format
+            options
+        );
+
+        successMessage.value = t('decompressSuccess');
         setTimeout(() => {
             successMessage.value = '';
         }, 3000);
-        
-        // 解压成功后清除选择的文件
-        clearFiles();
     } catch (error) {
-        console.error('解压失败:', error);
-        errorMessage.value = `解压失败: ${error instanceof Error ? error.message : String(error)}`;
+        console.error('Decompression failed:', error);
+        errorMessage.value = t('decompressError', [error instanceof Error ? error.message : String(error)]);
     } finally {
         isProcessing.value = false;
     }
 };
 
-watch(outputOption, (newV, _oldV) => {
+// Watch for output path changes
+watch(outputPath, (newV, _oldV) => {
     if (newV === 'source_path') {
-        // 使用源文件路径
+        // Use source file path
         updateSourcePath();
     } else if (newV === 'desktop_path') {
-        selectedOutputPath.value = `/Desktop`;
+        // Desktop path is handled in the computed property
     } else if (newV === 'select_path') {
         selectOutputPath();
+    }
+});
+
+// Initialize component
+onMounted(async () => {
+    // Get desktop path
+    desktopPath.value = await getDesktopPath();
+    
+    // Check for files passed in query parameters
+    const filesParam = route.query.files;
+    if (filesParam && typeof filesParam === 'string') {
+        try {
+            const parsedFiles = JSON.parse(filesParam);
+            if (Array.isArray(parsedFiles) && parsedFiles.length > 0) {
+                files.value = [parsedFiles[0]]; // Just use the first file for decompression
+                inputFilePath.value = parsedFiles[0];
+                updateSourcePath();
+            }
+        } catch (error) {
+            console.error('Failed to parse files parameter:', error);
+        }
     }
 });
 </script>
@@ -188,24 +188,22 @@ watch(outputOption, (newV, _oldV) => {
         <!-- File Input -->
         <Card class="app-section card input-card">
             <template #header>
-                <h3>选择压缩文件</h3>
+                <h3>{{ t('selectArchiveToDecompress') }}</h3>
             </template>
             <template #body>
                 <div class="app-file-input">
                     <FileDragInputBox class="app-file-drag" @file-dropped="handleFileDrop" @click="handleFileSelect">
                         <template #content>
                             <div v-if="files.length === 0">
-                                <p>拖拽文件到此处，或点击选择文件</p>
-                                <p>支持 .zip、.rar、.7z、.tar.gz 等格式</p>
+                                <p>{{ t('dragArchiveHere') }}</p>
+                                <p>{{ t('supportedFormats') }}</p>
                             </div>
                             <div v-else>
-                                <p>已选择 {{ files.length }} 个文件:</p>
-                                <ul class="app-file-list">
-                                    <li v-for="(file, index) in files" :key="index">
-                                        {{ file.split('/').pop()?.split('\\').pop() }}
-                                    </li>
-                                </ul>
-                                <button @click.stop="clearFiles" class="app-btn app-btn-small">清除选择</button>
+                                <p>{{ t('selectedFiles', [files.length]) }}</p>
+                                <div class="app-file-info">
+                                    {{ inputFilePath.split('/').pop()?.split('\\').pop() }}
+                                </div>
+                                <button @click.stop="clearFiles" class="app-btn app-btn-small">{{ t('clearSelection') }}</button>
                             </div>
                         </template>
                     </FileDragInputBox>
@@ -213,41 +211,42 @@ watch(outputOption, (newV, _oldV) => {
             </template>
         </Card>
 
-        <!-- Output Options -->
+        <!-- Decompression Options -->
         <Card class="app-section card option-card">
             <template #header>
-                <h3>输出选项</h3>
+                <h3>{{ t('decompressTitle') }}</h3>
             </template>
             <template #body>
                 <div class="app-options">
                     <div class="app-option-group">
-                        <RadioGroup label="输出路径：" v-model="outputOption" :options="[
-                            { value: 'select_path', label: '选择输出路径' },
-                            { value: 'source_path', label: '使用压缩文件路径' },
-                            { value: 'desktop_path', label: '输出到桌面' }
-                        ]
-                            " name="outputOption" />
+                        <RadioGroup 
+                            :label="t('outputPath')" 
+                            v-model="outputPath" 
+                            :options="[
+                                { value: 'select_path', label: t('selectOutputPath') },
+                                { value: 'source_path', label: t('useSourcePath') },
+                                { value: 'desktop_path', label: t('outputToDesktop') }
+                            ]" 
+                            name="outputPath" 
+                        />
                     </div>
 
-                    <div class="app-option-group">
-                        <RadioGroup label="解压方式：" v-model="outputMethod" :options="[
-                            { value: 'create_folder', label: '为每个压缩包创建文件夹' },
-                            { value: 'direct', label: '直接解压到选择的目录' },
-                            { value: 'one_folder', label: '解压到一个文件夹' }
-                        ]
-                            " name="outputMethod" />
+                    <div class="app-path-display">
+                        {{ t('resultPath', [handledOutputPath]) }}
                     </div>
 
                     <div class="app-option-group">
                         <label>
                             <input type="checkbox" v-model="usePassword" />
-                            使用密码
+                            {{ t('usePasswordToDecompress') }}
                         </label>
-                        <input type="password" v-model="password" :disabled="!usePassword" placeholder="输入密码" />
-                    </div>
-
-                    <div class="app-path-display">
-                        输出路径: {{ handledOutputPath }}
+                        <input
+                            v-if="usePassword"
+                            type="password"
+                            v-model="password"
+                            :placeholder="t('enterPassword')"
+                            class="app-input"
+                        />
                     </div>
                 </div>
             </template>
@@ -260,8 +259,8 @@ watch(outputOption, (newV, _oldV) => {
         <!-- Button -->
         <div class="app-action">
             <button @click="startDecompress" class="app-btn app-btn-primary" :disabled="isProcessing || files.length === 0">
-                <span v-if="isProcessing">解压中...</span>
-                <span v-else>开始解压</span>
+                <span v-if="isProcessing">{{ t('decompressing') }}</span>
+                <span v-else>{{ t('decompressButtonText') }}</span>
             </button>
         </div>
     </div>
@@ -317,33 +316,36 @@ watch(outputOption, (newV, _oldV) => {
     }
 }
 
-.app-file-list {
-    max-height: 80px;
-    overflow-y: auto;
+.app-file-info {
     margin: 0.5rem 0;
-    text-align: center;
-    list-style-type: none;
-    padding-left: 0;
-}
-
-.app-file-list li {
-    white-space: nowrap;
+    padding: 0.3rem 0.6rem;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding: 0.2rem 0;
+    white-space: nowrap;
 }
 
 .app-options {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.8rem;
     width: 100%;
 }
 
 .app-option-group {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.app-input {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 0.9rem;
 }
 
 .app-path-display {
